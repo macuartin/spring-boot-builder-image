@@ -1,0 +1,43 @@
+#!/bin/bash -e
+#
+# S2I assemble script for the 'spring-boot-builder' image.
+# The 'assemble' script builds your application source so that it is ready to run.
+#
+# For more information refer to the documentation:
+#	https://github.com/openshift/source-to-image/blob/master/docs/builder_image.md
+#
+
+# If the 'spring-boot-builder' assemble script is executed with the '-h' flag, print the usage.
+if [[ "$1" == "-h" ]]; then
+	exec /usr/libexec/s2i/usage
+fi
+
+if [ ! -f /tmp/src/build.gradle ]; then
+  echo "FATAL - No build.gradle found"
+  exit 1
+fi
+
+# Restore artifacts from the previous build (if they exist).
+#
+if [ "$(ls /tmp/artifacts/ 2>/dev/null)" ]; then
+  echo "---> Restoring build artifacts..."
+  shopt -s dotglob
+  mv /tmp/artifacts/* ./
+  shopt -u dotglob
+fi
+
+echo "---> Installing application source..."
+cp -Rf /tmp/src/. .
+
+echo "---> Building application from source..."
+./gradlew -Partifactory_contextUrl=$ARTIFACTORY_CONTEXT_URL \
+          -Partifactory_projectRepoKey=$ARTIFACTORY_PROJECT_REPO_KEY \
+          -Partifactory_user=$ARTIFACTORY_USER \
+          -Partifactory_password=$ARTIFACTORY_PASSWD \
+          -PsystemProp.http.proxyHost=$HTTP_PROXY \
+          -PsystemProp.http.proxyPort=$PROXY_PORT \
+          -PsystemProp.http.nonProxyHosts=$NO_PROXY \
+          --quiet clean build -x test
+
+echo "---> Install the artifacts into tmp location for move to runtime image..."
+mkdir -p /usr/local/tmp && cp -a /usr/local/app/build/libs/*.jar /usr/local/tmp/app.jar
